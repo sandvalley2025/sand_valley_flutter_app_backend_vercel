@@ -83,7 +83,7 @@ export const registerUser = async (req, res) => {
     await sendEmail(
       email,
       'Verify Your Email',
-      verifyEmailTemplate(username, `https://sand-valley-flutter-app-backend.onrender.com/api/auth/verify-email/${token}`)
+      verifyEmailTemplate(username, `https://sand-valley-flutter-app-backend-ver.vercel.app/api/auth/verify-email/${token}`)
     );
 
     doc.users.push(newUser);
@@ -245,7 +245,7 @@ export const updateUser = async (req, res) => {
       user.emailVerificationToken = crypto.randomBytes(20).toString('hex');
 
       // Send verification email
-      const verificationLink = `https://sand-valey-flutter-app-backend-node.vercel.app/api/auth/verify-email/${user.emailVerificationToken}`;
+      const verificationLink = `https://sand-valley-flutter-app-backend-ver.vercel.app/api/auth/verify-email/${user.emailVerificationToken}`;
       await sendEmail(
         email,
         'Verify Your New Email',
@@ -310,7 +310,7 @@ export const verifyUser = async (req, res) => {
 
     await rootDoc.save();
 
-    const verificationLink = `https://sand-valey-flutter-app-backend-node.vercel.app/api/auth/verify-email/${user.emailVerificationToken}`;
+    const verificationLink = `https://sand-valley-flutter-app-backend-ver.vercel.app/api/auth/verify-email/${user.emailVerificationToken}`;
 
     await sendEmail(
       user.email,
