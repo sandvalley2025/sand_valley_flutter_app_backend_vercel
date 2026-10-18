@@ -22,3 +22,8 @@ Thumbs.db
 # Optional build outputs (if you later use TypeScript or Babel)
 dist/
 build/
+
+tests
+node_modules
+docs
+CLAUDE.md

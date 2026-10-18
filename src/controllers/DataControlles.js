@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import mongoose from 'mongoose';
 import User from '../models/Users.js';
 import sendEmail from '../utils/sendEmail.js';
@@ -5,6 +8,7 @@ import uploadImage from '../utils/uploader/upload.js';
 import deleteImage from '../utils/uploader/deleteImage.js';
 import replaceImage from '../utils/uploader/replaceImage.js';
 
+const MAIN_SECTIONS = ['seeds', 'Fertilizer', 'Insecticide', 'Communication'];
 
 export const getALlData = async (req, res) => {
     try {
@@ -32,6 +36,9 @@ export const getmainCat = async (req, res) => {
 export const addmainCat = async (req, res) => {
     try {
         const { section } = req.body;
+        if (!MAIN_SECTIONS.includes(section)) {
+            return res.status(400).json({ message: `section must be one of: ${MAIN_SECTIONS.join(', ')}` });
+        }
         const file = req.file;
         const doc = await User.findOne();
         if (!file) {
@@ -54,6 +61,9 @@ export const addmainCat = async (req, res) => {
 export const UpdatemainCat = async (req, res) => {
     try {
         const { section } = req.body;
+        if (!MAIN_SECTIONS.includes(section)) {
+            return res.status(400).json({ message: `section must be one of: ${MAIN_SECTIONS.join(', ')}` });
+        }
         const file = req.file;
         const doc = await User.findOne();
         if (!file) {

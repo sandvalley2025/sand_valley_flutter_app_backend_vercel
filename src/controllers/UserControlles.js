@@ -1,9 +1,11 @@
 import mongoose from 'mongoose';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
 import User from '../models/Users.js';
-import { generateAccessToken } from '../utils/tokens.js';
-import sendEmail from '../utils/sendEmail.js';
+
+// Never expose credentials, reset codes or tokens to the client
+const publicUser = (user) => {
+    const { password, accessToken, resetOTP, resetOTPExpires, emailVerificationToken, ...rest } = user.toObject();
+    return rest;
+};
 
 export const getALlUsers = async (req, res) => {
     try {
@@ -12,10 +14,7 @@ export const getALlUsers = async (req, res) => {
             return res.status(404).json({ message: 'No users found' });
         }
         // Filter only users with role "user"
-        const userOnly = doc.users.filter(u => u.role === 'user').map(user => {
-            const { password, ...rest } = user.toObject();
-            return rest;
-        });;
+        const userOnly = doc.users.filter(u => u.role === 'user').map(publicUser);
 
         res.status(200).json({ users: userOnly });
 
@@ -39,10 +38,7 @@ export const getUserById = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Remove password before sending
-        const { password, ...rest } = user.toObject();
-
-        res.status(200).json({ user: rest });
+        res.status(200).json({ user: publicUser(user) });
     } catch (error) {
         res.status(500).json({ message: 'Failed to get user', error: error.message });
     }
@@ -53,7 +49,6 @@ export const deleteUserById = async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Optional: Validate ObjectId
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return res.status(400).json({ message: 'Invalid user ID' });
         }
@@ -69,6 +64,11 @@ export const deleteUserById = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        // The master account cannot be deleted through the API
+        if (doc.users[userIndex].role === 'admin') {
+            return res.status(403).json({ message: 'The admin account cannot be deleted' });
+        }
+
         // Remove user from array
         doc.users.splice(userIndex, 1);
         await doc.save();
@@ -78,4 +78,3 @@ export const deleteUserById = async (req, res) => {
         res.status(500).json({ message: 'Failed to delete user', error: error.message });
     }
 };
-

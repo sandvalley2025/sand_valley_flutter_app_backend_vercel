@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -10,10 +13,20 @@ import verifyEmailTemplate from '../utils/emailTemplates/verifyEmailTemplate.js'
 import emailVerifiedTemplate from '../utils/emailTemplates/emailVerifiedTemplate.js';
 import emailVerificationFailedTemplate from '../utils/emailTemplates/emailVerificationFailedTemplate.js';
 import emailInvalidOrExpiredTemplate from '../utils/emailTemplates/emailInvalidOrExpiredTemplate.js';
+import { isEmail, isNonEmptyString } from '../utils/validate.js';
+
 // masterAdmin , admin
+const PUBLIC_API_URL = () =>
+  (process.env.PUBLIC_API_URL || 'https://sand-valley-flutter-app-backend-ver.vercel.app').replace(/\/$/, '');
+const verifyLink = (token) => `${PUBLIC_API_URL()}/api/auth/verify-email/${token}`;
+const MIN_PASSWORD = 6;
+const generateOtp = () => crypto.randomInt(100000, 1000000).toString();
+const sameEmail = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 
 export const loginUser = async (req, res) => {
   const { username, password } = req.body;
+  if (!isNonEmptyString(username) || !isNonEmptyString(password))
+    return res.status(400).json({ message: 'Username and password are required' });
 
   try {
     const doc = await User.findOne(); // Get the main document that holds all users
@@ -54,6 +67,12 @@ export const loginUser = async (req, res) => {
 
 export const registerUser = async (req, res) => {
   const { username, password, email, name } = req.body;
+  if (!isNonEmptyString(username) || !isNonEmptyString(password) || !isNonEmptyString(email))
+    return res.status(400).json({ message: 'Username, email and password are required' });
+  if (!isEmail(email))
+    return res.status(400).json({ message: 'Please enter a valid email address' });
+  if (password.length < MIN_PASSWORD)
+    return res.status(400).json({ message: `Password must be at least ${MIN_PASSWORD} characters` });
   try {
     let doc = await User.findOne(); // One document holds all users
     if (!doc) {
@@ -63,7 +82,7 @@ export const registerUser = async (req, res) => {
     if (existingUser) {
       return res.status(409).json({ message: 'username already exist' });
     }
-    const existingUserEmail = doc.users.find(u => u.email === email);
+    const existingUserEmail = doc.users.find(u => sameEmail(u.email, email));
     if (existingUserEmail) {
       return res.status(409).json({ message: 'email already exist' });
     }
@@ -76,18 +95,20 @@ export const registerUser = async (req, res) => {
       password: hashedPassword,
       email,
       role: "user",
-      accessToken: generateAccessToken({ username }),
       isEmailVerified: false,
       emailVerificationToken: token,
     };
-    await sendEmail(
-      email,
-      'Verify Your Email',
-      verifyEmailTemplate(username, `https://sand-valley-flutter-app-backend-ver.vercel.app/api/auth/verify-email/${token}`)
-    );
+    newUser.accessToken = generateAccessToken(newUser);
 
     doc.users.push(newUser);
     await doc.save();
+
+    // The account exists even if the mail provider hiccups; the mail can be re-sent from the user page.
+    try {
+      await sendEmail(email, 'Verify Your Email', verifyEmailTemplate(username, verifyLink(token)));
+    } catch (mailError) {
+      console.error('Verification email failed:', mailError.message);
+    }
 
     res.status(200).json({
       statusCode: 200,
@@ -103,12 +124,15 @@ export const registerUser = async (req, res) => {
     });
 
   } catch (error) {
+    console.log(error);
     res.status(500).json({ message: 'Registration error', error: error.message });
   }
 };
 
 export const forgotPassword = async (req, res) => {
   const { input } = req.body; // input can be username or email
+  if (!isNonEmptyString(input))
+    return res.status(400).json({ message: 'Username or email is required' });
   try {
     // Find user by username or email
     const doc = await User.findOne();
@@ -120,7 +144,7 @@ export const forgotPassword = async (req, res) => {
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
+    const otp = generateOtp(); // 6-digit OTP (cryptographically random)
     const expiry = new Date(Date.now() + 10 * 60 * 1000); // expires in 10 minutes
 
     user.resetOTP = otp;
@@ -138,6 +162,8 @@ export const forgotPassword = async (req, res) => {
 
 export const verifyOTP = async (req, res) => {
   const { input, otp } = req.body; // input can be username or email
+  if (!isNonEmptyString(input) || !isNonEmptyString(String(otp ?? '')))
+    return res.status(400).json({ message: 'Username/email and OTP are required' });
 
   try {
     const doc = await User.findOne();
@@ -155,7 +181,7 @@ export const verifyOTP = async (req, res) => {
       return res.status(400).json({ message: 'No OTP generated or expired' });
     }
 
-    if (user.resetOTP !== otp) {
+    if (user.resetOTP !== String(otp)) {
       return res.status(400).json({ message: 'Incorrect OTP' });
     }
 
@@ -172,6 +198,10 @@ export const verifyOTP = async (req, res) => {
 
 export const resetPassword = async (req, res) => {
   const { input, otp, newPassword } = req.body; // "username" can be username OR email
+  if (!isNonEmptyString(input) || !isNonEmptyString(String(otp ?? '')) || !isNonEmptyString(newPassword))
+    return res.status(400).json({ message: 'Username/email, OTP and new password are required' });
+  if (newPassword.length < MIN_PASSWORD)
+    return res.status(400).json({ message: `Password must be at least ${MIN_PASSWORD} characters` });
 
   try {
     const doc = await User.findOne();
@@ -187,7 +217,7 @@ export const resetPassword = async (req, res) => {
     if (!user.resetOTP || !user.resetOTPExpires)
       return res.status(400).json({ message: 'Invalid or expired OTP' });
 
-    if (user.resetOTP !== otp)
+    if (user.resetOTP !== String(otp))
       return res.status(400).json({ message: 'Incorrect OTP' });
 
     if (user.resetOTPExpires < new Date())
@@ -208,6 +238,14 @@ export const resetPassword = async (req, res) => {
 
 export const updateUser = async (req, res) => {
   const { id, username, password, newPassword, email, name } = req.body;
+  if (!isNonEmptyString(id)) return res.status(400).json({ message: 'User id is required' });
+  // A user may only edit their own account; the master may edit anyone
+  if (req.user.role !== 'admin' && String(req.user.userId) !== String(id))
+    return res.status(403).json({ message: 'You can only update your own account' });
+  if (newPassword && newPassword.length < MIN_PASSWORD)
+    return res.status(400).json({ message: `Password must be at least ${MIN_PASSWORD} characters` });
+  if (email && !isEmail(email))
+    return res.status(400).json({ message: 'Please enter a valid email address' });
   try {
     // Get the single User document that contains all users
     const rootUserDoc = await User.findOne();
@@ -227,7 +265,9 @@ export const updateUser = async (req, res) => {
       user.password = await bcrypt.hash(newPassword, 10);
     }
     // Handle username update if provided
-    if (username) {
+    if (username && username !== user.username) {
+      const usernameTaken = rootUserDoc.users.some(u => u.username === username && u._id.toString() !== id);
+      if (usernameTaken) return res.status(409).json({ message: 'Username already in use by another user' });
       user.username = username;
     }
     if (name) {
@@ -236,7 +276,7 @@ export const updateUser = async (req, res) => {
 
     if (email && email !== user.email) {
       // Check if email already exists in another user
-      const emailExists = rootUserDoc.users.some(u => u.email === email && u._id.toString() !== id);
+      const emailExists = rootUserDoc.users.some(u => sameEmail(u.email, email) && u._id.toString() !== id);
       if (emailExists) {
         return res.status(409).json({ message: 'Email already in use by another user' });
       }
@@ -245,7 +285,7 @@ export const updateUser = async (req, res) => {
       user.emailVerificationToken = crypto.randomBytes(20).toString('hex');
 
       // Send verification email
-      const verificationLink = `https://sand-valley-flutter-app-backend-ver.vercel.app/api/auth/verify-email/${user.emailVerificationToken}`;
+      const verificationLink = verifyLink(user.emailVerificationToken);
       await sendEmail(
         email,
         'Verify Your New Email',
@@ -310,7 +350,7 @@ export const verifyUser = async (req, res) => {
 
     await rootDoc.save();
 
-    const verificationLink = `https://sand-valley-flutter-app-backend-ver.vercel.app/api/auth/verify-email/${user.emailVerificationToken}`;
+    const verificationLink = verifyLink(user.emailVerificationToken);
 
     await sendEmail(
       user.email,
